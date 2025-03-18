@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Authentication Callback</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+
+        .container {
+            text-align: center;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+        }
+
+        h1 {
+            color: #4285f4;
+            margin-bottom: 20px;
+        }
+
+        p {
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid #4285f4;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Authentication Complete</h1>
+        <div class="spinner"></div>
+        <p>You have successfully signed in. This window will close automatically.</p>
+    </div>
+
+    <!-- No external scripts -->
+
+    <!-- Load our scripts -->
+    <script src="../lib/constants.js"></script>
+    <script src="../lib/supabase.js"></script>
+
+    <script>
+        // Use the shared constant
+        const AUTH_STORAGE_KEY = window.HeyTextAI.constants.AUTH_STORAGE_KEY;
+
+        document.addEventListener('DOMContentLoaded', async function () {
+            try {
+                console.log("Auth callback loaded, processing authentication...");
+
+                // Get the URL hash parameters
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                const accessToken = hashParams.get('access_token');
+                const refreshToken = hashParams.get('refresh_token');
+                const expiresIn = hashParams.get('expires_in');
+
+                // Check if we have tokens in the URL (for redirect flow)
+                if (accessToken && refreshToken) {
+                    console.log("Found tokens in URL, creating session manually");
+
+                    // Create a session object manually
+                    const session = {
+                        access_token: accessToken,
+                        refresh_token: refreshToken,
+                        expires_in: parseInt(expiresIn || '3600'),
+                        expires_at: Math.floor(Date.now() / 1000) + parseInt(expiresIn || '3600')
+                    };
+
+                    // Save the session to extension storage
+                    await window.HeyTextAI.supabase.saveSession(session);
+                    console.log("Session saved successfully from URL parameters");
+
+                    // Try to save to website localStorage if possible
+                    try {
+                        // We can't directly access the website's localStorage from here,
+                        // but we can store it in our own localStorage for the background script to find
+                        localStorage.setItem(window.HeyTextAI.constants.AUTH_STORAGE_KEY, JSON.stringify(session));
+                        console.log("Session also saved to extension's localStorage for sync");
+
+                        // Notify background script about the new session
+                        chrome.runtime.sendMessage({
+                            type: 'popup-session-updated',
+                            session: session
+                        }, (response) => {
+                            console.log("Background script notified about new session:", response);
+                        });
+                    } catch (error) {
+                        console.error("Error saving to localStorage:", error);
+                    }
+
+                    // Close the window after a short delay
+                    setTimeout(() => {
+                        window.close();
+                    }, 2000);
+                    return;
+                }
+
+                // If no tokens in URL, we can't proceed
+                console.log("No tokens in URL, cannot proceed with authentication");
+                throw new Error('No authentication tokens found in URL');
+            } catch (error) {
+                console.error('Error in auth callback:', error);
+                document.querySelector('.container').innerHTML = `
+                    <h1>Authentication Error</h1>
+                    <p>There was an error processing your sign-in. Please try again.</p>
+                    <p>Error: ${error.message}</p>
+                    <p>Please check the console for more details.</p>
+                    <button onclick="window.close()">Close</button>
+                `;
+            }
+        });
+    </script>
+</body>
+
+</html>
